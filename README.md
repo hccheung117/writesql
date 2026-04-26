@@ -1,0 +1,183 @@
+# WriteSQL
+
+**No ORM, no DSL, just SQL.**
+
+Write analytics in pure SQL. Make it dynamic, typed, and reusable in Python. No messy string concatenation. No ORMs hiding your queries.
+
+---
+
+## The Problem with Dynamic SQL
+
+You're working on the data side of a new revenue dashboard. 
+
+You do what you always do: you open DataGrip (or your favorite database console) and write a perfect, handcrafted SQL query. It's clean, it's standard SQL, and it runs flawlessly:
+
+```sql
+SELECT id, amount, user_id
+FROM orders
+WHERE status = 'completed'
+  AND created_at >= '2024-01-01'
+  AND created_at < '2024-02-01'
+  AND region IN ('EU', 'US');
+```
+
+Beautiful. It's easy to read, test, and explain to anyone on the team. 
+
+Now the camera pans to the dashboard backend. You need to put this query into a Python API endpoint. The catch? Those dates and regions need to be dynamic based on the user's request.
+
+**The pain: How do you make this dynamic without ruining it?**
+
+*   **Attempt 1: String Concatenation.**
+    You try piecing the query together dynamically:
+    ```python
+    query = "SELECT id, amount, user_id FROM orders WHERE status = 'completed'"
+    if start_date:
+        query += f" AND created_at >= '{start_date}'"
+    if end_date:
+        query += f" AND created_at < '{end_date}'"
+    if regions:
+        query += f" AND region IN ({','.join(['?']*len(regions))})"
+    ```
+    *The Result:* It's ugly, error-prone (missing spaces, trailing `AND`s), and visually breaks the SQL. If you go back to this code a month later, you can no longer see the shape of the query.
+
+*   **Attempt 2: The ORM.**
+    You give up on strings and translate it to an ORM (like SQLAlchemy):
+    ```python
+    query = session.query(Order).filter(Order.status == 'completed')
+    if start_date:
+        query = query.filter(Order.created_at >= start_date)
+    if end_date:
+        query = query.filter(Order.created_at < end_date)
+    if regions:
+        query = query.filter(Order.region.in_(regions))
+    ```
+    *The Result:* The SQL is completely hidden. Your beautiful, standard SQL query has been replaced by a wall of Python methods. When you need to add complex analytical groupings later, you'll have to fight the ORM API instead of just writing SQL.
+
+---
+
+## How It Works
+
+You want a truce. You want the joy of writing pure SQL in your data console, *and* you want typed, composable Python functions for the API.
+
+### Write standard SQL
+
+With WriteSQL, the SQL stays exactly as you wrote it, just wrapped in a Python function using native f-strings. 
+
+```python
+from writesql import statement
+
+@statement
+def get_orders(start_date: str, end_date: str, regions: list[str]) -> str:
+    return f"""
+    SELECT id, amount, user_id
+    FROM orders
+    WHERE status = 'completed'
+      AND created_at >= {start_date}
+      AND created_at < {end_date}
+      AND region IN {regions}
+    """
+```
+
+*The Magic:* It's just a native Python f-string. The SQL shape is perfectly preserved. It's typed, editor-friendly, and WriteSQL smartly formats Python lists into SQL `IN` clauses (e.g., turning `['EU', 'US']` into `('EU', 'US')`) automatically so your SQL stays clean.
+
+### Compose reusable fragments
+
+That's great for one query. But what if you have 5 different dashboard endpoints that *all* need that exact same date and region filtering logic? You don't want to copy-paste those `WHERE` clauses into every single statement.
+
+We extract that shared logic into a reusable `@clause`. A clause renders the inside of a SQL block.
+
+```python
+from writesql import clause
+
+@clause
+def dashboard_filters(start_date: str, end_date: str, regions: list[str]) -> str:
+    return f"""
+      AND created_at >= {start_date}
+      AND created_at < {end_date}
+      AND region IN {regions}
+    """
+
+@statement
+def get_orders(filters=dashboard_filters) -> str:
+    return f"""
+    SELECT id, amount, user_id
+    FROM orders
+    WHERE status = 'completed'
+      {filters}
+    """
+```
+
+*The Magic:* The statement remains pure SQL structure. The dynamic logic is isolated, testable, and reusable. By injecting the clause as a default parameter, dependencies are beautifully explicit. 
+
+### Pass parameters naturally
+
+Because these are just Python functions, you can always pass parameters explicitly. If you're in a FastAPI route, you can just call the statement directly:
+
+```python
+@app.get("/orders")
+def api_get_orders(start_date: str, end_date: str, regions: list[str]):
+    # Just pass them directly!
+    sql = get_orders(
+        start_date=start_date, 
+        end_date=end_date, 
+        regions=regions
+    )
+    return db.execute(sql)
+```
+
+### Share context globally
+
+But what happens when your application grows? What if `get_orders` is buried three layers deep inside a reporting service? Or what if *every* query in your multi-tenant app needs a `tenant_id` filter? 
+
+Normally, you'd have to pass `tenant_id` down through every single Python function in your application just to get it to the SQL layer (prop-drilling).
+
+With WriteSQL, you can just `share()` runtime context at the top of the request (like in a FastAPI dependency or middleware).
+
+```python
+from writesql import clause, statement, share
+
+@clause
+def tenant_filter(tenant_id: int) -> str:
+    return f"AND tenant_id = {tenant_id}"
+
+@statement
+def get_orders(filters=tenant_filter) -> str:
+    return f"""
+    SELECT id, amount, user_id
+    FROM orders
+    WHERE status = 'completed' 
+      {filters}
+    """
+
+# In a FastAPI Middleware or Dependency:
+def set_tenant_context(request: Request):
+    tenant_id = get_tenant_from_token(request)
+    # Bind the context globally for this request
+    share(tenant_filter, {"tenant_id": tenant_id})
+
+@app.get("/orders")
+def api_get_orders():
+    # We don't have to pass tenant_id here!
+    # get_orders() automatically resolves it from the shared context.
+    sql = get_orders() 
+    return db.execute(sql)
+```
+
+---
+
+## Core Principles
+
+WriteSQL exists to avoid query-building patterns, not to provide a nicer version of them. 
+
+1. **Native Python f-strings:** Autocomplete, type hints, variable resolution, and imports work out of the box without learning a custom template language.
+2. **SQL-first statements:** The returned f-string should look like the final SQL. Reviewers shouldn't need to chase helper functions to understand the query shape.
+3. **Flat Names:** Interpolated variables should be semantic local variables (e.g., `{start_date}`), not complex object attribute chains inside the SQL (e.g., `{ctx.filters.date_filter}`).
+4. **Declarative:** Avoid conditionally appending or procedurally assembling SQL string fragments. Keep query structure in statements; put unavoidable dynamic SQL assembly into named clauses.
+
+---
+
+## Roadmap
+
+*   **v0.1 Core API:** Stabilize the proof-of-concept (`@statement`, `@clause`, `share()`) and refine ergonomics.
+*   **v0.2 Safety:** We defer parameter binding to this stage. We will introduce safe interpolation boundaries, auto-extracting bound parameters to prevent SQL injection while maintaining the f-string developer experience.
+*   **v0.3 SQLModel integration:** First-class integration with SQLModel.
