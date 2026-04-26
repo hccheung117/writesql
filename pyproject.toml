@@ -1,0 +1,32 @@
+[project]
+name = "writesql"
+version = "0.0.0"
+description = "Write analytics in pure SQL."
+readme = "README.md"
+authors = [
+    { name = "H.C. Cheung", email = "hccheung117@gmail.com" }
+]
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dependencies = []
+keywords = ["sql", "analytics", "fstring", "typed", "orm-alternative"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/hccheung117/writesql"
+Repository = "https://github.com/hccheung117/writesql"
+Issues = "https://github.com/hccheung117/writesql/issues"
