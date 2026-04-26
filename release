@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+die() {
+    echo "error: $*" >&2
+    exit 1
+}
+
+parse_version() {
+    local v="$1"
+    if [[ ! "$v" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+        die "unsupported version format: $v (expected MAJOR.MINOR.PATCH)"
+    fi
+    MAJOR="${BASH_REMATCH[1]}"
+    MINOR="${BASH_REMATCH[2]}"
+    PATCH="${BASH_REMATCH[3]}"
+}
+
+tag_exists_locally() {
+    git rev-parse -q --verify "refs/tags/$1" >/dev/null 2>&1
+}
+
+tag_exists_remotely() {
+    local out
+    out="$(git ls-remote --tags origin "refs/tags/$1" 2>/dev/null || true)"
+    [[ -n "$out" ]]
+}
+
+command -v uv >/dev/null 2>&1 || die "uv is not installed or not on PATH"
+command -v git >/dev/null 2>&1 || die "git is not installed or not on PATH"
+
+CURRENT="$(uv version --short)"
+parse_version "$CURRENT"
+
+NEXT_PATCH="${MAJOR}.${MINOR}.$((PATCH + 1))"
+NEXT_MINOR="${MAJOR}.$((MINOR + 1)).0"
+NEXT_MAJOR="$((MAJOR + 1)).0.0"
+
+echo "Current version: ${CURRENT}"
+echo
+echo "Choose release bump:"
+echo "1. patch -> ${NEXT_PATCH}"
+echo "2. minor -> ${NEXT_MINOR}"
+echo "3. major -> ${NEXT_MAJOR}"
+echo "q. cancel"
+echo
+
+read -r -p "Selection: " CHOICE
+
+case "$CHOICE" in
+    1) BUMP="patch"; NEXT="$NEXT_PATCH" ;;
+    2) BUMP="minor"; NEXT="$NEXT_MINOR" ;;
+    3) BUMP="major"; NEXT="$NEXT_MAJOR" ;;
+    q|Q) echo "Cancelled."; exit 0 ;;
+    *) die "invalid selection: $CHOICE" ;;
+esac
+
+TAG="v${NEXT}"
+
+if [[ -n "$(git status --porcelain)" ]]; then
+    die "working tree is not clean; commit or stash changes before releasing"
+fi
+
+if tag_exists_locally "$TAG"; then
+    die "tag ${TAG} already exists locally"
+fi
+
+if tag_exists_remotely "$TAG"; then
+    die "tag ${TAG} already exists on origin"
+fi
+
+echo
+echo "==> uv sync"
+uv sync
+
+echo
+echo "==> uv run pytest"
+uv run pytest
+
+echo
+echo "==> uv version --bump ${BUMP}"
+uv version --bump "$BUMP"
+
+NEW_VERSION="$(uv version --short)"
+NEW_TAG="v${NEW_VERSION}"
+
+if [[ "$NEW_TAG" != "$TAG" ]]; then
+    die "uv produced version ${NEW_VERSION} but expected ${NEXT}; pyproject.toml is left modified for inspection"
+fi
+
+git add pyproject.toml uv.lock 2>/dev/null || git add pyproject.toml
+git commit -m "Release ${NEW_TAG}"
+git tag -a "$NEW_TAG" -m "Release ${NEW_TAG}"
+
+BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+
+echo
+echo "Created commit and annotated tag ${NEW_TAG} on branch ${BRANCH}."
+read -r -p "Push ${BRANCH} and ${NEW_TAG} to origin? [y/N] " CONFIRM
+case "$CONFIRM" in
+    y|Y|yes|YES) ;;
+    *) echo "Push declined. Commit and tag remain locally."; exit 0 ;;
+esac
+
+git push origin "$BRANCH"
+git push origin "$NEW_TAG"
+
+echo "Pushed ${NEW_TAG}."
