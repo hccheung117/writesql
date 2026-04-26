@@ -30,3 +30,15 @@ classifiers = [
 Homepage = "https://github.com/hccheung117/writesql"
 Repository = "https://github.com/hccheung117/writesql"
 Issues = "https://github.com/hccheung117/writesql/issues"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
