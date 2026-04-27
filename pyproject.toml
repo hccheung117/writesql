@@ -1,6 +1,6 @@
 [project]
 name = "writesql"
-version = "0.0.1"
+version = "0.0.2"
 description = "Write analytics in pure SQL."
 readme = "README.md"
 authors = [
