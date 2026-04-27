@@ -139,3 +139,51 @@ def test_mixed_value_and_clause_parameters_are_classified_per_argument():
     assert bound["regions"].value == ["EU", "US"]
     assert bound["filters"].kind == "clause"
     assert bound["filters"].value is inner
+
+
+# --- Classifying identifier parameters ---
+
+
+def test_table_annotated_parameter_is_classified_as_identifier():
+    from writesql import statement
+    from writesql._identifier import Table
+
+    @statement
+    def q(table: Table) -> str:
+        return ""
+
+    bound = bind_and_classify(q, table="orders")
+
+    assert bound["table"].kind == "identifier"
+    assert bound["table"].value == "orders"
+
+
+def test_column_annotated_parameter_is_classified_as_identifier():
+    from writesql import statement
+    from writesql._identifier import Column
+
+    @statement
+    def q(metric: Column) -> str:
+        return ""
+
+    bound = bind_and_classify(q, metric="revenue")
+
+    assert bound["metric"].kind == "identifier"
+
+
+def test_renderable_value_with_table_annotation_still_classified_as_clause():
+    from writesql import clause, statement
+    from writesql._identifier import Table
+
+    @clause
+    def inner() -> str:
+        return ""
+
+    @statement
+    def q(table: Table = inner) -> str:
+        return ""
+
+    bound = bind_and_classify(q)
+
+    assert bound["table"].kind == "clause"
+    assert bound["table"].value is inner

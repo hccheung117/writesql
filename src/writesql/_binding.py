@@ -1,10 +1,11 @@
-"""Call binding and value-vs-clause parameter classification.
+"""Call binding and value-vs-clause-vs-identifier parameter classification.
 
 `bind_and_classify` maps caller-supplied positional and keyword arguments to
 the renderable's named parameters (applying defaults for omissions) and tags
-each bound parameter as either a value parameter (raw Python data destined
-for SQL-literal rendering) or a clause parameter (a `Renderable` to be
-rendered recursively).
+each bound parameter as a value parameter (raw Python data destined for
+SQL-literal rendering), a clause parameter (a `Renderable` to be rendered
+recursively), or an identifier parameter (annotated `Table`/`Column`,
+validated and emitted verbatim).
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from typing import Any, Literal
 
 from ._renderable import Renderable
 
-ParamKind = Literal["value", "clause"]
+ParamKind = Literal["value", "clause", "identifier"]
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,12 @@ def bind_and_classify(
 
     classified: dict[str, BoundParameter] = {}
     for name, value in bound.arguments.items():
-        kind: ParamKind = "clause" if isinstance(value, Renderable) else "value"
+        kind: ParamKind
+        if isinstance(value, Renderable):
+            kind = "clause"
+        elif name in renderable.identifier_params:
+            kind = "identifier"
+        else:
+            kind = "value"
         classified[name] = BoundParameter(name=name, kind=kind, value=value)
     return classified

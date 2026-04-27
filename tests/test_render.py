@@ -81,3 +81,86 @@ class TestStatementRendering:
 
         with pytest.raises(TypeError):
             bad()
+
+
+def test_table_annotation_renders_value_verbatim():
+    from writesql import statement
+    from writesql._identifier import Table
+
+    @statement
+    def q(table: Table) -> str:
+        return f"SELECT * FROM {table}"
+
+    assert q(table="orders") == "SELECT * FROM orders"
+
+
+def test_dotted_table_renders_verbatim():
+    from writesql import statement
+    from writesql._identifier import Table
+
+    @statement
+    def q(table: Table) -> str:
+        return f"SELECT * FROM {table}"
+
+    assert q(table="analytics.orders") == "SELECT * FROM analytics.orders"
+
+
+def test_column_and_table_and_value_in_same_statement():
+    from writesql import statement
+    from writesql._identifier import Column, Table
+
+    @statement
+    def kpi(table: Table, metric: Column, date: str) -> str:
+        return f"SELECT {metric} FROM {table} WHERE d = {date}"
+
+    assert (
+        kpi(table="orders", metric="revenue", date="2026-04-01")
+        == "SELECT revenue FROM orders WHERE d = '2026-04-01'"
+    )
+
+
+def test_invalid_identifier_value_raises_invalid_identifier():
+    import pytest
+
+    from writesql import statement
+    from writesql._errors import InvalidIdentifier
+    from writesql._identifier import Table
+
+    @statement
+    def q(table: Table) -> str:
+        return f"SELECT * FROM {table}"
+
+    with pytest.raises(InvalidIdentifier):
+        q(table="orders; DROP TABLE users")
+
+
+def test_non_string_identifier_value_raises_unsupported_value():
+    import pytest
+
+    from writesql import statement
+    from writesql._errors import UnsupportedValue
+    from writesql._identifier import Table
+
+    @statement
+    def q(table: Table) -> str:
+        return f"SELECT * FROM {table}"
+
+    with pytest.raises(UnsupportedValue):
+        q(table=42)
+
+
+def test_renderable_value_with_table_annotation_routes_as_clause():
+    """Runtime-type wins: a Renderable value is always rendered as a clause,
+    even if the parameter is annotated Table."""
+    from writesql import clause, statement
+    from writesql._identifier import Table
+
+    @clause
+    def inner() -> str:
+        return "real_table"
+
+    @statement
+    def q(table: Table = inner) -> str:
+        return f"SELECT * FROM {table}"
+
+    assert q() == "SELECT * FROM real_table"

@@ -21,14 +21,26 @@ P = ParamSpec("P")
 
 class Renderable(Generic[P]):
     def __init__(self, func: Callable[P, str], kind: Kind) -> None:
+        from ._identifier import Column, Table
+
         self.func: Callable[P, str] = func
         self.kind: Kind = kind
-        self.signature: inspect.Signature = inspect.signature(func)
+        # Combine function's globals with locally imported identifier types
+        # so eval_str=True can resolve annotations like Table and Column
+        eval_globals = {**func.__globals__, "Table": Table, "Column": Column}
+        self.signature: inspect.Signature = inspect.signature(
+            func, eval_str=True, globals=eval_globals
+        )
         self.clause_dependencies: dict[str, "Renderable[...]"] = {
             name: param.default
             for name, param in self.signature.parameters.items()
             if isinstance(param.default, Renderable)
         }
+        self.identifier_params: frozenset[str] = frozenset(
+            name
+            for name, param in self.signature.parameters.items()
+            if param.annotation is Table or param.annotation is Column
+        )
         update_wrapper(self, func)
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> str:

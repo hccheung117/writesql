@@ -133,3 +133,10 @@ def test_cycle_detected_across_two_clauses_reports_full_chain():
 
     with pytest.raises(CycleDetected, match=r"first -> second -> first"):
         first()
+
+
+def test_invalid_identifier_is_a_writesql_error_and_value_error():
+    from writesql._errors import InvalidIdentifier, WriteSQLError
+
+    assert issubclass(InvalidIdentifier, WriteSQLError)
+    assert issubclass(InvalidIdentifier, ValueError)

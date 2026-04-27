@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 
-from writesql import clause, share, statement
+from writesql import Table, clause, share, statement
 
 
 def _normalize(sql: str) -> str:
@@ -130,5 +130,43 @@ def test_share_binds_runtime_context_to_clause():
         FROM orders
         WHERE status = 'completed'
           AND tenant_id = 123
+    """
+    assert _normalize(str(sql)) == _normalize(expected)
+
+
+# --- Identifier parameters (Table, Column) ------------------------------------
+
+
+def test_identifier_parameters_render_verbatim():
+    @statement
+    def get_orders(
+        source: Table,
+        start_date: str,
+        end_date: str,
+        regions: list[str],
+    ) -> str:
+        return f"""
+        SELECT id, amount, user_id
+        FROM {source}
+        WHERE status = 'completed'
+          AND created_at >= {start_date}
+          AND created_at < {end_date}
+          AND region IN {regions}
+        """
+
+    sql = get_orders(
+        source="analytics.orders",
+        start_date="2024-01-01",
+        end_date="2024-02-01",
+        regions=["EU", "US"],
+    )
+
+    expected = """
+        SELECT id, amount, user_id
+        FROM analytics.orders
+        WHERE status = 'completed'
+          AND created_at >= '2024-01-01'
+          AND created_at < '2024-02-01'
+          AND region IN ('EU', 'US')
     """
     assert _normalize(str(sql)) == _normalize(expected)

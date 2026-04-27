@@ -26,3 +26,7 @@ class InvalidReturn(WriteSQLError, TypeError):
 
 class CycleDetected(WriteSQLError, RuntimeError):
     pass
+
+
+class InvalidIdentifier(WriteSQLError, ValueError):
+    pass

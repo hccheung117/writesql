@@ -7,8 +7,9 @@ top-level caller pool, then clause-dependency defaults declared on the
 signature, then shared runtime context bound via `share()`, then ordinary
 Python defaults, then a `MissingParameter` error. Value parameters are wrapped
 as SQL literals before the user function runs; clause parameters are rendered
-recursively into raw SQL fragments. Cycles in clause dependencies are
-detected via the render stack.
+recursively into raw SQL fragments; identifier parameters (annotated `Table`
+or `Column`) are validated and emitted verbatim. Cycles in clause dependencies
+are detected via the render stack.
 """
 
 from __future__ import annotations
@@ -19,10 +20,12 @@ from typing import Any
 from ._context import shared_values_for
 from ._errors import (
     CycleDetected,
+    InvalidIdentifier,
     InvalidReturn,
     MissingParameter,
     UnsupportedValue,
 )
+from ._identifier import render_identifier
 from ._renderable import Renderable
 
 _MISSING = inspect.Parameter.empty
@@ -73,6 +76,14 @@ def render_renderable(
             call_kwargs[name] = render_renderable(
                 value, (), {}, _stack + (renderable,), _caller_pool
             )
+        elif name in renderable.identifier_params:
+            try:
+                call_kwargs[name] = render_identifier(value)
+            except (UnsupportedValue, InvalidIdentifier) as exc:
+                raise type(exc)(
+                    f"{exc} for parameter {name!r} of "
+                    f"@{renderable.kind} {renderable.func.__name__}"
+                ) from exc
         else:
             try:
                 call_kwargs[name] = render_value(value)

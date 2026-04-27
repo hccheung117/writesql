@@ -80,6 +80,41 @@ def get_orders(start_date: str, end_date: str, regions: list[str]) -> str:
 
 *The Magic:* It's just a native Python f-string. The SQL shape is perfectly preserved. It's typed, editor-friendly, and WriteSQL smartly formats Python lists into SQL `IN` clauses (e.g., turning `['EU', 'US']` into `('EU', 'US')`) automatically so your SQL stays clean.
 
+### Use identifiers for tables and columns
+
+So far `start_date`, `end_date`, and `regions` are all *values* — WriteSQL quotes them as SQL literals. But sometimes the table or column name itself needs to be dynamic. Your dashboard might run against `orders` in production and `orders_staging` in preview, or an analyst might want to swap the whole `FROM` clause to query a materialized view.
+
+A table name is not a value — it's an identifier. Quoting it as a string would produce invalid SQL. Annotate the parameter with `Table` (or `Column`) and WriteSQL will emit it verbatim after strict validation:
+
+```python
+from writesql import statement, Table
+
+@statement
+def get_orders(source: Table, start_date: str, end_date: str, regions: list[str]) -> str:
+    return f"""
+    SELECT id, amount, user_id
+    FROM {source}
+    WHERE status = 'completed'
+      AND created_at >= {start_date}
+      AND created_at < {end_date}
+      AND region IN {regions}
+    """
+
+get_orders(
+    source="analytics.orders",
+    start_date="2024-01-01",
+    end_date="2024-02-01",
+    regions=["EU", "US"],
+)
+# SELECT id, amount, user_id
+# FROM analytics.orders
+# WHERE status = 'completed'
+#   AND created_at >= '2024-01-01'
+#   ...
+```
+
+*The Magic:* The f-string still looks like SQL — no wrappers at the call site. `Table` and `Column` are type aliases for `str`, so your editor autocompletes and type-checks as normal. Values are validated against a strict identifier pattern (letters, digits, underscores, and dots), so unsafe input like `"orders; DROP TABLE users"` is rejected with `InvalidIdentifier` before it ever reaches the database.
+
 ### Compose reusable fragments
 
 That's great for one query. But what if you have 5 different dashboard endpoints that *all* need that exact same date and region filtering logic? You don't want to copy-paste those `WHERE` clauses into every single statement.

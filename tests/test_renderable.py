@@ -86,3 +86,39 @@ def test_non_renderable_defaults_are_not_clause_dependencies():
         return ""
 
     assert outer.clause_dependencies == {}
+
+
+def test_renderable_caches_identifier_parameter_names():
+    from writesql import statement
+    from writesql._identifier import Column, Table
+
+    @statement
+    def q(table: Table, metric: Column, date: str) -> str:
+        return ""
+
+    assert q.identifier_params == frozenset({"table", "metric"})
+
+
+def test_renderable_identifier_params_empty_when_none_annotated():
+    from writesql import statement
+
+    @statement
+    def q(a: str, b: int) -> str:
+        return ""
+
+    assert q.identifier_params == frozenset()
+
+
+def test_renderable_identifier_params_ignores_clause_defaults():
+    from writesql import clause, statement
+    from writesql._identifier import Table
+
+    @clause
+    def filt() -> str:
+        return ""
+
+    @statement
+    def q(table: Table, filters=filt) -> str:
+        return ""
+
+    assert q.identifier_params == frozenset({"table"})
