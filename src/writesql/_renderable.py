@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import inspect
 from functools import update_wrapper
-from typing import Any, Callable, Generic, Literal, ParamSpec
+from dataclasses import dataclass
+from typing import Any, Callable, Generic, Literal, Mapping, ParamSpec
 
 Kind = Literal["statement", "clause"]
 P = ParamSpec("P")
@@ -21,15 +22,33 @@ P = ParamSpec("P")
 
 class Renderable(Generic[P]):
     def __init__(self, func: Callable[P, str], kind: Kind) -> None:
-        from ._identifier import Column, Table
+        from ._identifier import Column, Columns, Table
 
         self.func: Callable[P, str] = func
         self.kind: Kind = kind
         # Combine function's globals with locally imported identifier types
         # so eval_str=True can resolve annotations like Table and Column
-        eval_globals = {**func.__globals__, "Table": Table, "Column": Column}
+        eval_globals = {
+            **func.__globals__,
+            "Table": Table,
+            "Column": Column,
+            "Columns": Columns,
+        }
         self.signature: inspect.Signature = inspect.signature(
             func, eval_str=True, globals=eval_globals
+        )
+        columns_params = [
+            name
+            for name, param in self.signature.parameters.items()
+            if param.annotation is Columns
+        ]
+        if len(columns_params) > 1:
+            raise TypeError(
+                f"@{kind} {func.__name__} may declare at most one "
+                "Columns parameter"
+            )
+        self.columns_param: str | None = (
+            columns_params[0] if columns_params else None
         )
         self.clause_dependencies: dict[str, "Renderable[...]"] = {
             name: param.default
@@ -48,8 +67,64 @@ class Renderable(Generic[P]):
 
         return render_renderable(self, args, kwargs)
 
+    def on(self, **columns: Any) -> "RenderableFragment":
+        if self.kind != "clause":
+            raise TypeError(".on() is only supported for @clause renderables")
+        return RenderableFragment(self).on(**columns)
+
     def __repr__(self) -> str:
         return f"<Renderable {self.kind} {self.func.__name__}>"
+
+
+@dataclass(frozen=True)
+class RenderableFragment:
+    renderable: Renderable[...]
+    columns: Mapping[str, Any] | None = None
+    stack: tuple[Renderable[...], ...] = ()
+    caller_pool: Mapping[str, Any] | None = None
+
+    def on(self, **columns: Any) -> "RenderableFragment":
+        if self.renderable.kind != "clause":
+            raise TypeError(".on() is only supported for @clause renderables")
+        return RenderableFragment(
+            self.renderable,
+            dict(columns),
+            self.stack,
+            self.caller_pool,
+        )
+
+    def __str__(self) -> str:
+        from ._render import render_renderable
+
+        caller_pool = (
+            None if self.caller_pool is None else dict(self.caller_pool)
+        )
+        return render_renderable(
+            self.renderable,
+            (),
+            {},
+            self.stack,
+            caller_pool,
+            dict(self.columns) if self.columns is not None else None,
+        )
+
+    def __format__(self, format_spec: str) -> str:
+        return format(str(self), format_spec)
+
+    def __call__(self, *args: Any, **kwargs: Any) -> str:
+        from ._render import render_renderable
+
+        caller_pool = (
+            None if self.caller_pool is None else dict(self.caller_pool)
+        )
+        return render_renderable(
+            self.renderable,
+            args,
+            kwargs,
+            self.stack,
+            caller_pool,
+            dict(self.columns) if self.columns is not None else None,
+        )
 
 
 def statement(func: Callable[P, str]) -> Renderable[P]:

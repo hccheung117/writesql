@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 
-from writesql import Table, clause, share, statement
+from writesql import Columns, Table, clause, share, statement
 
 
 def _normalize(sql: str) -> str:
@@ -132,6 +132,52 @@ def test_share_binds_runtime_context_to_clause():
           AND tenant_id = 123
     """
     assert _normalize(str(sql)) == _normalize(expected)
+
+
+def test_column_mapping_for_reusable_dashboard_filters():
+    @clause
+    def dashboard_filters(
+        columns: Columns,
+        start_date: str,
+        end_date: str,
+        regions: list[str],
+    ) -> str:
+        return f"""
+          AND {columns.date} >= {start_date}
+          AND {columns.date} < {end_date}
+          AND {columns.region} IN {regions}
+        """
+
+    @statement
+    def get_orders(filters=dashboard_filters) -> str:
+        return f"""
+        SELECT id, amount, user_id
+        FROM orders o
+        WHERE status = 'completed'
+          {filters.on(
+              date="o.created_at",
+              region="o.region",
+          )}
+        """
+
+    share(
+        dashboard_filters,
+        {
+            "start_date": "2024-01-01",
+            "end_date": "2024-02-01",
+            "regions": ["EU", "US"],
+        },
+    )
+
+    expected = """
+        SELECT id, amount, user_id
+        FROM orders o
+        WHERE status = 'completed'
+          AND o.created_at >= '2024-01-01'
+          AND o.created_at < '2024-02-01'
+          AND o.region IN ('EU', 'US')
+    """
+    assert _normalize(str(get_orders())) == _normalize(expected)
 
 
 # --- Identifier parameters (Table, Column) ------------------------------------

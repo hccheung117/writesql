@@ -122,7 +122,7 @@ That's great for one query. But what if you have 5 different dashboard endpoints
 We extract that shared logic into a reusable `@clause`. A clause renders the inside of a SQL block.
 
 ```python
-from writesql import clause
+from writesql import clause, statement
 
 @clause
 def dashboard_filters(start_date: str, end_date: str, regions: list[str]) -> str:
@@ -133,7 +133,12 @@ def dashboard_filters(start_date: str, end_date: str, regions: list[str]) -> str
     """
 
 @statement
-def get_orders(filters=dashboard_filters) -> str:
+def get_orders(
+    start_date: str,
+    end_date: str,
+    regions: list[str],
+    filters=dashboard_filters,
+) -> str:
     return f"""
     SELECT id, amount, user_id
     FROM orders
@@ -142,19 +147,29 @@ def get_orders(filters=dashboard_filters) -> str:
     """
 ```
 
-*The Magic:* The statement remains pure SQL structure. The dynamic logic is isolated, testable, and reusable. By injecting the clause as a default parameter, dependencies are beautifully explicit. 
+*The Magic:* The statement remains pure SQL structure. The dynamic logic is isolated, testable, and reusable. By injecting the clause as a default parameter, dependencies are beautifully explicit.
 
 ### Pass parameters naturally
 
-Because these are just Python functions, you can always pass parameters explicitly. If you're in a FastAPI route, you can just call the statement directly:
+Because these are just Python functions, you can always pass parameters explicitly when they belong to the statement you're calling. If you're in a FastAPI route, you can call that statement directly:
 
 ```python
+@statement
+def get_orders_for_range(start_date: str, end_date: str, regions: list[str]) -> str:
+    return f"""
+    SELECT id, amount, user_id
+    FROM orders
+    WHERE status = 'completed'
+      AND created_at >= {start_date}
+      AND created_at < {end_date}
+      AND region IN {regions}
+    """
+
 @app.get("/orders")
 def api_get_orders(start_date: str, end_date: str, regions: list[str]):
-    # Just pass them directly!
-    sql = get_orders(
-        start_date=start_date, 
-        end_date=end_date, 
+    sql = get_orders_for_range(
+        start_date=start_date,
+        end_date=end_date,
         regions=regions
     )
     return db.execute(sql)
@@ -162,7 +177,7 @@ def api_get_orders(start_date: str, end_date: str, regions: list[str]):
 
 ### Share context globally
 
-But what happens when your application grows? What if `get_orders` is buried three layers deep inside a reporting service? Or what if *every* query in your multi-tenant app needs a `tenant_id` filter? 
+But what happens when your application grows? What if `get_orders` is buried three layers deep inside a reporting service? Or what if *every* query in your multi-tenant app needs a `tenant_id` filter?
 
 Normally, you'd have to pass `tenant_id` down through every single Python function in your application just to get it to the SQL layer (prop-drilling).
 
@@ -180,7 +195,7 @@ def get_orders(filters=tenant_filter) -> str:
     return f"""
     SELECT id, amount, user_id
     FROM orders
-    WHERE status = 'completed' 
+    WHERE status = 'completed'
       {filters}
     """
 
@@ -194,25 +209,76 @@ def set_tenant_context(request: Request):
 def api_get_orders():
     # We don't have to pass tenant_id here!
     # get_orders() automatically resolves it from the shared context.
-    sql = get_orders() 
+    sql = get_orders()
     return db.execute(sql)
+```
+
+### Map reusable filters to local columns
+
+Sometimes the reusable filter logic is the same, but each statement needs different physical column names or table aliases. Keep the runtime values shared, and map the columns where the clause appears:
+
+```python
+from writesql import Columns, clause, share, statement
+
+@clause
+def dashboard_filters(
+    columns: Columns,
+    start_date: str,
+    end_date: str,
+    regions: list[str],
+) -> str:
+    return f"""
+      AND {columns.date} >= {start_date}
+      AND {columns.date} < {end_date}
+      AND {columns.region} IN {regions}
+    """
+
+@statement
+def get_orders(filters=dashboard_filters) -> str:
+    return f"""
+    SELECT id, amount, user_id
+    FROM orders o
+    WHERE status = 'completed'
+      {filters.on(
+          date="o.created_at",
+          region="o.region",
+      )}
+    """
+
+@statement
+def get_users(filters=dashboard_filters) -> str:
+    return f"""
+    SELECT id, email
+    FROM users u
+    WHERE u.active = TRUE
+      {filters.on(
+          date="u.signup_at",
+          region="u.region",
+      )}
+    """
+
+share(dashboard_filters, {
+    "start_date": "2024-01-01",
+    "end_date": "2024-02-01",
+    "regions": ["EU", "US"],
+})
 ```
 
 ---
 
 ## Core Principles
 
-WriteSQL exists to avoid query-building patterns, not to provide a nicer version of them. 
+WriteSQL exists to avoid query-building patterns, not to provide a nicer version of them.
 
 1. **Native Python f-strings:** Autocomplete, type hints, variable resolution, and imports work out of the box without learning a custom template language.
 2. **SQL-first statements:** The returned f-string should look like the final SQL. Reviewers shouldn't need to chase helper functions to understand the query shape.
-3. **Flat Names:** Interpolated variables should be semantic local variables (e.g., `{start_date}`), not complex object attribute chains inside the SQL (e.g., `{ctx.filters.date_filter}`).
+3. **Flat Names and Explicit Namespaces:** Runtime values should use semantic local variables (e.g., `{start_date}`), not complex object attribute chains inside the SQL (e.g., `{ctx.filters.date_filter}`). Use explicit WriteSQL namespaces, such as `{columns.date}`, when they improve SQL readability by distinguishing identifiers from values.
 4. **Declarative:** Avoid conditionally appending or procedurally assembling SQL string fragments. Keep query structure in statements; put unavoidable dynamic SQL assembly into named clauses.
 
 ---
 
 ## Roadmap
 
-*   **v0.1 Core API:** Stabilize the proof-of-concept (`@statement`, `@clause`, `share()`) and refine ergonomics.
 *   **v0.2 Safety:** We defer parameter binding to this stage. We will introduce safe interpolation boundaries, auto-extracting bound parameters to prevent SQL injection while maintaining the f-string developer experience.
 *   **v0.3 SQLModel integration:** First-class integration with SQLModel.
+*   **v0.4 SQLAlchemy integration:** First-class integration with SQLAlchemy.

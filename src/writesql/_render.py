@@ -25,8 +25,8 @@ from ._errors import (
     MissingParameter,
     UnsupportedValue,
 )
-from ._identifier import render_identifier
-from ._renderable import Renderable
+from ._identifier import Columns, render_identifier
+from ._renderable import Renderable, RenderableFragment
 
 _MISSING = inspect.Parameter.empty
 
@@ -56,26 +56,40 @@ def render_renderable(
     kwargs: dict[str, Any],
     _stack: tuple[Renderable[...], ...] = (),
     _caller_pool: dict[str, Any] | None = None,
+    _columns: dict[str, Any] | None = None,
 ) -> str:
     if renderable in _stack:
         chain = " -> ".join(r.func.__name__ for r in _stack + (renderable,))
         raise CycleDetected(f"cycle detected in clause dependencies: {chain}")
 
-    resolved = _resolve_parameters(renderable, args, kwargs, _caller_pool)
+    resolved = _resolve_parameters(
+        renderable, args, kwargs, _caller_pool, _columns
+    )
 
     if _caller_pool is None:
         _caller_pool = {
             name: value
             for name, value in resolved.items()
-            if not isinstance(value, Renderable)
+            if not isinstance(value, (Renderable, RenderableFragment, Columns))
         }
 
     call_kwargs: dict[str, Any] = {}
     for name, value in resolved.items():
         if isinstance(value, Renderable):
-            call_kwargs[name] = render_renderable(
-                value, (), {}, _stack + (renderable,), _caller_pool
+            call_kwargs[name] = RenderableFragment(
+                value,
+                stack=_stack + (renderable,),
+                caller_pool=_caller_pool,
             )
+        elif isinstance(value, RenderableFragment):
+            call_kwargs[name] = RenderableFragment(
+                value.renderable,
+                value.columns,
+                value.stack or _stack + (renderable,),
+                value.caller_pool or _caller_pool,
+            )
+        elif name == renderable.columns_param:
+            call_kwargs[name] = value
         elif name in renderable.identifier_params:
             try:
                 call_kwargs[name] = render_identifier(value)
@@ -107,6 +121,7 @@ def _resolve_parameters(
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
     caller_pool: dict[str, Any] | None,
+    columns: dict[str, Any] | None,
 ) -> dict[str, Any]:
     sig = renderable.signature
     bound = sig.bind_partial(*args, **kwargs)
@@ -115,6 +130,17 @@ def _resolve_parameters(
     shared = shared_values_for(renderable)
 
     for name, param in sig.parameters.items():
+        if name == renderable.columns_param:
+            if name in arguments:
+                continue
+            if columns is None:
+                raise MissingParameter(
+                    "missing column mapping for "
+                    f"@{renderable.kind} {renderable.func.__name__}; "
+                    "call .on(...) at the clause interpolation site"
+                )
+            arguments[name] = Columns(columns, renderable.func.__name__)
+            continue
         if name in arguments:
             continue
         if caller_pool is not None and name in caller_pool:
