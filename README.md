@@ -1,8 +1,9 @@
 # WriteSQL
 
-[![Release](https://github.com/hccheung117/writesql/actions/workflows/release.yml/badge.svg)](https://github.com/hccheung117/writesql/actions/workflows/release.yml)
-[![CI](https://github.com/hccheung117/writesql/actions/workflows/ci.yml/badge.svg)](https://github.com/hccheung117/writesql/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/writesql.svg)](https://pypi.org/project/writesql/)
+[![CI](https://github.com/hccheung117/writesql/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/hccheung117/writesql/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/hccheung117/writesql/branch/main/graph/badge.svg)](https://codecov.io/gh/hccheung117/writesql)
+[![License](https://img.shields.io/pypi/l/writesql.svg)](https://github.com/hccheung117/writesql/blob/main/LICENSE)
 
 **No ORM, no DSL, just SQL.**
 
