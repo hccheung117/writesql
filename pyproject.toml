@@ -34,6 +34,7 @@ Issues = "https://github.com/hccheung117/writesql/issues"
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
 ]
 
 [build-system]

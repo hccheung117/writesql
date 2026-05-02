@@ -1,5 +1,9 @@
 # WriteSQL
 
+[![Release](https://github.com/hccheung117/writesql/actions/workflows/release.yml/badge.svg)](https://github.com/hccheung117/writesql/actions/workflows/release.yml)
+[![CI](https://github.com/hccheung117/writesql/actions/workflows/ci.yml/badge.svg)](https://github.com/hccheung117/writesql/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/hccheung117/writesql/branch/main/graph/badge.svg)](https://codecov.io/gh/hccheung117/writesql)
+
 **No ORM, no DSL, just SQL.**
 
 Write analytics in pure SQL. Make it dynamic, typed, and reusable in Python. No messy string concatenation. No ORMs hiding your queries.
