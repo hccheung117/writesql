@@ -60,7 +60,7 @@ def test_renderable_exposes_signature_of_original_function():
     assert list(q.signature.parameters) == ["a", "b"]
 
 
-def test_renderable_is_callable_and_returns_user_function_output():
+def test_renderable_is_callable_and_returns_string_compatible_output():
     @statement
     def q() -> str:
         return "SELECT 1"

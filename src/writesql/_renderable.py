@@ -6,7 +6,8 @@ clause, its signature, and which default parameters point to other
 renderables (clause dependencies). The class is generic over the wrapped
 function's parameter spec so editor tooling preserves call-site autocomplete:
 `@statement def get_orders(start_date: str) -> str` becomes a value whose
-`__call__` accepts `(start_date: str)` and returns `str`.
+`__call__` accepts `(start_date: str)` and returns `CompiledSQL`, a `str`
+subclass carrying params/debug SQL metadata.
 """
 
 from __future__ import annotations
@@ -14,7 +15,9 @@ from __future__ import annotations
 import inspect
 from functools import update_wrapper
 from dataclasses import dataclass
-from typing import Any, Callable, Generic, Literal, Mapping, ParamSpec
+from typing import Any, Callable, Generic, Literal, Mapping, ParamSpec, cast
+
+from ._parameterization import CompiledSQL
 
 Kind = Literal["statement", "clause"]
 P = ParamSpec("P")
@@ -62,10 +65,10 @@ class Renderable(Generic[P]):
         )
         update_wrapper(self, func)
 
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> str:
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> CompiledSQL:
         from ._render import render_renderable
 
-        return render_renderable(self, args, kwargs)
+        return cast(CompiledSQL, render_renderable(self, args, kwargs))
 
     def on(self, **columns: Any) -> "RenderableFragment":
         if self.kind != "clause":
@@ -82,6 +85,7 @@ class RenderableFragment:
     columns: Mapping[str, Any] | None = None
     stack: tuple[Renderable[...], ...] = ()
     caller_pool: Mapping[str, Any] | None = None
+    context: Any | None = None
 
     def on(self, **columns: Any) -> "RenderableFragment":
         if self.renderable.kind != "clause":
@@ -91,6 +95,7 @@ class RenderableFragment:
             dict(columns),
             self.stack,
             self.caller_pool,
+            self.context,
         )
 
     def __str__(self) -> str:
@@ -106,12 +111,13 @@ class RenderableFragment:
             self.stack,
             caller_pool,
             dict(self.columns) if self.columns is not None else None,
+            self.context,
         )
 
     def __format__(self, format_spec: str) -> str:
         return format(str(self), format_spec)
 
-    def __call__(self, *args: Any, **kwargs: Any) -> str:
+    def __call__(self, *args: Any, **kwargs: Any) -> CompiledSQL | str:
         from ._render import render_renderable
 
         caller_pool = (
@@ -124,6 +130,7 @@ class RenderableFragment:
             self.stack,
             caller_pool,
             dict(self.columns) if self.columns is not None else None,
+            self.context,
         )
 
 

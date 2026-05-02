@@ -1,6 +1,6 @@
 """README acceptance tests.
 
-These treat the README as the executable contract for WriteSQL v0.0. Each test
+These treat the README as the executable contract for WriteSQL. Each test
 mirrors a code block from the README and asserts the SQL string a caller would
 get back. SQL is compared after whitespace normalization so the README's visual
 indentation does not couple the tests to formatting choices.
@@ -8,9 +8,22 @@ indentation does not couple the tests to formatting choices.
 
 from __future__ import annotations
 
+from pathlib import Path
 import re
 
-from writesql import Columns, Table, clause, share, statement
+import pytest
+
+from writesql import Columns, Table, clause, parameterize, share, statement
+from writesql._parameterization import _reset_parameterization
+
+README = Path(__file__).resolve().parents[1] / "README.md"
+
+
+@pytest.fixture(autouse=True)
+def reset_parameterization():
+    _reset_parameterization()
+    yield
+    _reset_parameterization()
 
 
 def _normalize(sql: str) -> str:
@@ -57,6 +70,68 @@ def test_basic_statement_result_is_string_compatible():
     sql = trivial()
     # Callers should be able to treat it as a plain string.
     assert str(sql).strip() == "SELECT 1"
+
+
+def test_readme_documents_sequence_parameterization_example():
+    readme = README.read_text()
+
+    assert 'parameterize("sequence", placeholder=lambda p: "?")' in readme
+    assert "cursor.execute(str(sql), sql.params)" in readme
+    assert "sql.debug_sql" in readme
+    assert "not for execution" in readme
+
+
+def test_readme_sequence_parameterization_example_is_string_compatible():
+    parameterize("sequence", placeholder=lambda p: "?")
+
+    @statement
+    def get_orders(start_date: str, end_date: str, regions: list[str]) -> str:
+        return f"""
+        SELECT id, amount, user_id
+        FROM orders
+        WHERE status = 'completed'
+          AND created_at >= {start_date}
+          AND created_at < {end_date}
+          AND region IN {regions}
+        """
+
+    sql = get_orders(
+        start_date="2024-01-01",
+        end_date="2024-02-01",
+        regions=["EU", "US"],
+    )
+    expected_driver_sql = """
+        SELECT id, amount, user_id
+        FROM orders
+        WHERE status = 'completed'
+          AND created_at >= ?
+          AND created_at < ?
+          AND region IN (?, ?)
+    """
+    expected_debug_sql = """
+        SELECT id, amount, user_id
+        FROM orders
+        WHERE status = 'completed'
+          AND created_at >= '2024-01-01'
+          AND created_at < '2024-02-01'
+          AND region IN ('EU', 'US')
+    """
+
+    assert isinstance(sql, str)
+    assert _normalize(str(sql)) == _normalize(expected_driver_sql)
+    assert sql.params == ["2024-01-01", "2024-02-01", "EU", "US"]
+    assert _normalize(sql.debug_sql) == _normalize(expected_debug_sql)
+
+    executed: list[tuple[str, list[str]]] = []
+
+    class Cursor:
+        def execute(self, statement: str, params: list[str]) -> None:
+            executed.append((statement, params))
+
+    cursor = Cursor()
+    cursor.execute(str(sql), sql.params)
+
+    assert executed == [(str(sql), sql.params)]
 
 
 # --- Clause composition --------------------------------------------------------

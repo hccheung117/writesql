@@ -24,6 +24,10 @@ class InvalidReturn(WriteSQLError, TypeError):
     pass
 
 
+class ConfigurationError(WriteSQLError, ValueError):
+    pass
+
+
 class CycleDetected(WriteSQLError, RuntimeError):
     pass
 

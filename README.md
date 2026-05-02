@@ -175,6 +175,56 @@ def api_get_orders(start_date: str, end_date: str, regions: list[str]):
     return db.execute(sql)
 ```
 
+### Bind parameters for execution
+
+The examples above render values as SQL literals, which keeps the SQL easy to inspect and preserves compatibility. For database execution, configure parameter binding once during application setup and WriteSQL will return a string-compatible compiled value with driver-ready SQL plus collected params:
+
+```python
+from writesql import parameterize, statement
+
+parameterize("sequence", placeholder=lambda p: "?")
+
+@statement
+def get_orders_for_range(start_date: str, end_date: str, regions: list[str]) -> str:
+    return f"""
+    SELECT id, amount, user_id
+    FROM orders
+    WHERE status = 'completed'
+      AND created_at >= {start_date}
+      AND created_at < {end_date}
+      AND region IN {regions}
+    """
+
+sql = get_orders_for_range(
+    start_date="2024-01-01",
+    end_date="2024-02-01",
+    regions=["EU", "US"],
+)
+
+cursor.execute(str(sql), sql.params)
+
+str(sql)
+# SELECT id, amount, user_id
+# FROM orders
+# WHERE status = 'completed'
+#   AND created_at >= ?
+#   AND created_at < ?
+#   AND region IN (?, ?)
+
+sql.params
+# ["2024-01-01", "2024-02-01", "EU", "US"]
+
+sql.debug_sql
+# SELECT id, amount, user_id
+# FROM orders
+# WHERE status = 'completed'
+#   AND created_at >= '2024-01-01'
+#   AND created_at < '2024-02-01'
+#   AND region IN ('EU', 'US')
+```
+
+`str(sql)` stays compatible with APIs that expect a normal string. `sql.params` is the value container to pass to your database driver. `sql.debug_sql` is for local debugging and test assertions, not for execution; it may contain sensitive values and is not a replacement for bound parameters.
+
 ### Share context globally
 
 But what happens when your application grows? What if `get_orders` is buried three layers deep inside a reporting service? Or what if *every* query in your multi-tenant app needs a `tenant_id` filter?
@@ -279,6 +329,5 @@ WriteSQL exists to avoid query-building patterns, not to provide a nicer version
 
 ## Roadmap
 
-*   **v0.2 Safety:** We defer parameter binding to this stage. We will introduce safe interpolation boundaries, auto-extracting bound parameters to prevent SQL injection while maintaining the f-string developer experience.
 *   **v0.3 SQLModel integration:** First-class integration with SQLModel.
 *   **v0.4 SQLAlchemy integration:** First-class integration with SQLAlchemy.
